@@ -22,28 +22,25 @@ jobs:
           # Remove any existing rule with the same name to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           
-          # For testing, allow any incoming connection on port 3389
+          # Allow inbound RDP connections
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
             dir=in action=allow protocol=TCP localport=3389
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
+          # Restart the Remote Desktop service to apply changes
           Restart-Service -Name TermService -Force
 
-      - name: Create runneradmin User with Secure Password
+      - name: Set Password for runneradmin
         run: |
-          $password = "Qwer@123"
+          $password = 'Qwer@123'
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          # Create the runneradmin user with a secure password
-          New-LocalUser -Name "runneradmin" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "runneradmin"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin"
-          
-          # Store the credentials as environment variables
+
+          # Set password for the built-in GitHub runner account
+          Set-LocalUser -Name "runneradmin" -Password $securePass
+
+          # Add runneradmin to Remote Desktop Users (if not already)
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin" -ErrorAction SilentlyContinue
+
           echo "RDP_CREDS=User: runneradmin | Password: $password" >> $env:GITHUB_ENV
-          
-          if (-not (Get-LocalUser -Name "runneradmin")) {
-              Write-Error "User creation failed"
-              exit 1
 
       - name: Install Tailscale
         run: |
@@ -56,7 +53,7 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Bring up Tailscale with the provided auth key and set a unique hostname
+          # Bring up Tailscale with provided auth key and set a unique hostname
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
           # Wait for Tailscale to assign an IP
@@ -78,7 +75,7 @@ jobs:
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
           
-          # Test connectivity using Test-NetConnection against the Tailscale IP on port 3389
+          # Test RDP port availability
           $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
           if (-not $testResult.TcpTestSucceeded) {
               Write-Error "TCP connection to RDP port 3389 failed"
@@ -91,10 +88,10 @@ jobs:
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: runneradmin"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host "Password: Qwer@123"
           Write-Host "==================`n"
           
-          # Keep runner active indefinitely (or until manually cancelled)
+          # Keep runner active indefinitely
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
